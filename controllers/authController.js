@@ -1,4 +1,4 @@
-const bcrypt = require("bcrypt");
+const bcrypt = require("bcryptjs"); // Usamos bcryptjs para evitar errores de compilación
 const jwt = require("jsonwebtoken");
 const User = require("../models/User");
 
@@ -7,7 +7,12 @@ exports.register = async (req, res) => {
     try {
         const { username, password, role } = req.body;
 
-        // Validar que no se registre como admin
+        // Validar campos vacíos
+        if (!username || !password) {
+            return res.status(400).json({ error: "Usuario y contraseña son obligatorios" });
+        }
+
+        // Validar que no se registre como admin directamente
         if (role === "admin") {
             return res.status(403).json({
                 error: "No se permite registrar administradores desde el formulario público.",
@@ -20,19 +25,25 @@ exports.register = async (req, res) => {
         }
 
         const hashedPassword = await bcrypt.hash(password, 10);
-        const newUser = new User({ username, password: hashedPassword, role });
+        
+        // Asignar rol por defecto si no viene
+        const userRole = role || "user"; 
+
+        const newUser = new User({ username, password: hashedPassword, role: userRole });
 
         await newUser.save();
 
         return res.status(201).json({
+            message: "Usuario registrado con éxito",
             user: {
+                id: newUser._id,
                 username: newUser.username,
                 role: newUser.role,
             },
         });
     } catch (error) {
         console.error("Error en el registro:", error);
-        return res.status(500).json({ error: "Error al registrar el usuario" });
+        return res.status(500).json({ error: "Error interno al registrar el usuario" });
     }
 };
 
@@ -40,29 +51,32 @@ exports.register = async (req, res) => {
 exports.login = async (req, res) => {
     try {
         const { username, password } = req.body;
-        console.log("Intentando login con:", username);
 
         const user = await User.findOne({ username });
         if (!user) {
-            console.log("Usuario no encontrado");
-            return res.status(400).json({ error: "Usuario no encontrado" });
+            return res.status(400).json({ error: "Usuario o contraseña incorrectos" });
         }
 
         const isValid = await bcrypt.compare(password, user.password);
         if (!isValid) {
-            console.log("Contraseña inválida");
-            return res.status(401).json({ error: "Contraseña incorrecta" });
+            return res.status(401).json({ error: "Usuario o contraseña incorrectos" });
         }
 
+        // Generar Token con la clave del .env
         const token = jwt.sign(
-            { username: user.username, role: user.role },
-            "secreto",
-            { expiresIn: "1h" }
+            { id: user._id, username: user.username, role: user.role },
+            process.env.JWT_SECRET,
+            { expiresIn: "8h" } // Token dura 8 horas
         );
 
         res.status(200).json({
+            message: "Login exitoso",
             token,
-            user: { username: user.username, role: user.role },
+            user: { 
+                id: user._id,
+                username: user.username, 
+                role: user.role 
+            },
         });
     } catch (error) {
         console.error("Error en login:", error);
